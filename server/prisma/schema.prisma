@@ -1,0 +1,129 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id           String            @id @default(uuid())
+  email        String            @unique
+  passwordHash String
+  name         String
+  avatarUrl    String?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  workspaces   Workspace[]       @relation("OwnedWorkspaces")
+  memberships  WorkspaceMember[]
+  chatMessages ChatMessage[]
+}
+
+model Workspace {
+  id              String            @id @default(uuid())
+  name            String
+  description     String?
+  language        String            @default("typescript")
+  ownerId         String
+  owner           User              @relation("OwnedWorkspaces", fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  members         WorkspaceMember[]
+  files           File[]
+  chatMessages    ChatMessage[]
+  whiteboardState WhiteboardState?
+  aiSessions      AISession[]
+  notes           Note[]
+  spreadsheets    Spreadsheet[]
+}
+
+model WorkspaceMember {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        String    @default("editor")
+  createdAt   DateTime  @default(now())
+
+  @@unique([workspaceId, userId])
+}
+
+model File {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  path        String
+  name        String
+  content     String?
+  isFolder    Boolean   @default(false)
+  parentId    String?
+  parent      File?     @relation("FileHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children    File[]    @relation("FileHierarchy")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([workspaceId, path])
+}
+
+model ChatMessage {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content     String
+  createdAt   DateTime  @default(now())
+}
+
+model WhiteboardState {
+  id          String    @id @default(uuid())
+  workspaceId String    @unique
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  dataJson    String
+  updatedAt   DateTime  @updatedAt
+}
+
+model AISession {
+  id          String      @id @default(uuid())
+  workspaceId String
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  title       String      @default("AI Conversation")
+  createdAt   DateTime    @default(now())
+  messages    AIMessage[]
+}
+
+model AIMessage {
+  id          String    @id @default(uuid())
+  sessionId   String
+  session     AISession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role        String
+  content     String
+  promptType  String?
+  codeContext String?
+  createdAt   DateTime  @default(now())
+}
+
+model Note {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  title       String    @default("Untitled Note")
+  content     String    @default("")
+  authorId    String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Spreadsheet {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  title       String    @default("Untitled Sheet")
+  dataJson    String    @default("[[\"\",\"\"],[\"\",\"\"]]")
+  authorId    String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
