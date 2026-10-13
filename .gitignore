@@ -62,6 +62,16 @@ desktop.ini
 server/generated/
 
 # ========================
+# SQLite Database (contains user data - keep private!)
+# ========================
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+server/prisma/dev.db
+server/prisma/*.db
+
+# ========================
 # Cloudflare / Tunnel Temp Files
 # ========================
 *.cloudflared
