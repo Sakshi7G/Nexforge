@@ -73,6 +73,8 @@ server.listen(PORT, () => {
   // Check Docker Daemon status in background
   DockerExecutionService.checkDockerAvailability();
 
-  // Start automated Cloudflare Tunnel in background
-  TunnelService.startTunnel();
+  // Start automated Cloudflare Tunnel ONLY in local development
+  if (ENV.NODE_ENV !== 'production') {
+    TunnelService.startTunnel();
+  }
 });
