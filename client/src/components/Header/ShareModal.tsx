@@ -47,7 +47,15 @@ export const ShareModal: React.FC<ShareModalProps> = ({ onClose }) => {
     };
   }, []);
 
-  const baseUrl = publicTunnelUrl || lanAppUrl || (window.location.origin.includes('localhost') ? window.location.origin : window.location.origin);
+  const isCloudOrigin = typeof window !== 'undefined' &&
+    window.location.hostname !== 'localhost' &&
+    window.location.hostname !== '127.0.0.1' &&
+    !window.location.hostname.startsWith('192.168.') &&
+    !window.location.hostname.startsWith('10.');
+
+  const baseUrl = isCloudOrigin
+    ? window.location.origin
+    : (publicTunnelUrl || lanAppUrl || window.location.origin);
   const roomUrl = activeWorkspace ? `${baseUrl}?room=${activeWorkspace.id}` : '';
 
   const handleCopyLink = () => {
@@ -79,7 +87,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({ onClose }) => {
       if (res.data.previewUrl) setPreviewUrl(res.data.previewUrl);
       setEmail('');
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to invite user.');
+      setError(err.response?.data?.error || err.response?.data?.details || err.message || 'Failed to invite user.');
     } finally {
       setLoading(false);
     }
@@ -127,15 +135,20 @@ export const ShareModal: React.FC<ShareModalProps> = ({ onClose }) => {
               <Globe size={14} color="#10b981" />
               Worldwide Public Link (Join from any Wi-Fi)
             </label>
-            {publicTunnelUrl ? (
+            {isCloudOrigin ? (
+              <span style={{ fontSize: '11px', color: '#10b981', background: 'rgba(16, 185, 129, 0.15)', padding: '2px 8px', borderRadius: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', display: 'inline-block' }}></span>
+                Worldwide Cloud Active
+              </span>
+            ) : publicTunnelUrl ? (
               <span style={{ fontSize: '11px', color: '#10b981', background: 'rgba(16, 185, 129, 0.15)', padding: '2px 8px', borderRadius: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
                 <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', display: 'inline-block' }}></span>
                 Worldwide Tunnel Active
               </span>
             ) : (
               <span style={{ fontSize: '11px', color: '#3b82f6', background: 'rgba(59, 130, 246, 0.15)', padding: '2px 8px', borderRadius: '12px', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <Loader2 size={10} className="animate-spin" />
-                Initializing Worldwide Tunnel...
+                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#3b82f6', display: 'inline-block' }}></span>
+                Local Network (Wi-Fi)
               </span>
             )}
           </div>

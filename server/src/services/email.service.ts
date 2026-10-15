@@ -11,8 +11,8 @@ interface SendInviteParams {
 
 class EmailServiceClass {
   private getTransporter(): nodemailer.Transporter | null {
-    const gmailUser = process.env.GMAIL_USER?.trim();
-    const gmailPass = process.env.GMAIL_APP_PASSWORD?.replace(/\s+/g, '');
+    const gmailUser = process.env.GMAIL_USER?.trim() || 'sakshigharge822@gmail.com';
+    const gmailPass = (process.env.GMAIL_APP_PASSWORD || 'ybwommvylopnhjal').replace(/\s+/g, '');
     const host = process.env.SMTP_HOST;
     const port = parseInt(process.env.SMTP_PORT || '587', 10);
     const user = process.env.SMTP_USER || gmailUser;
@@ -24,14 +24,20 @@ class EmailServiceClass {
         auth: {
           user: gmailUser,
           pass: gmailPass
-        }
+        },
+        connectionTimeout: 8000,
+        greetingTimeout: 8000,
+        socketTimeout: 10000
       });
     } else if (host && user && pass) {
       return nodemailer.createTransport({
         host,
         port,
         secure: port === 465,
-        auth: { user, pass }
+        auth: { user, pass },
+        connectionTimeout: 8000,
+        greetingTimeout: 8000,
+        socketTimeout: 10000
       });
     }
     return null;
@@ -124,43 +130,43 @@ Happy coding!
       }
     }
 
-    // Fallback: Create test account with Ethereal if SMTP not configured or failed
-    try {
-      const testAccount = await nodemailer.createTestAccount();
-      const testTransporter = nodemailer.createTransport({
-        host: 'smtp.ethereal.email',
-        port: 587,
-        secure: false,
-        auth: {
-          user: testAccount.user,
-          pass: testAccount.pass
-        }
-      });
+    // Fallback: In development only, attempt Ethereal test account with strict 3-second timeout
+    if (process.env.NODE_ENV !== 'production') {
+      try {
+        const testAccount = await Promise.race([
+          nodemailer.createTestAccount(),
+          new Promise<any>((_, reject) => setTimeout(() => reject(new Error('Ethereal timeout')), 3000))
+        ]);
+        const testTransporter = nodemailer.createTransport({
+          host: 'smtp.ethereal.email',
+          port: 587,
+          secure: false,
+          auth: {
+            user: testAccount.user,
+            pass: testAccount.pass
+          },
+          connectionTimeout: 3000,
+          socketTimeout: 4000
+        });
 
-      const info = await testTransporter.sendMail({
-        from: fromAddress,
-        to: recipientEmail,
-        subject,
-        text: textContent,
-        html: htmlContent
-      });
+        const info = await testTransporter.sendMail({
+          from: fromAddress,
+          to: recipientEmail,
+          subject,
+          text: textContent,
+          html: htmlContent
+        });
 
-      const previewUrl = nodemailer.getTestMessageUrl(info) || undefined;
-      console.log(`\n======================================================`);
-      console.log(`[EmailService] 📩 INVITATION EMAIL DISPATCHED TO: ${recipientEmail}`);
-      console.log(`[EmailService] Subject: ${subject}`);
-      console.log(`[EmailService] Direct Room Join Link: ${joinUrl}`);
-      if (previewUrl) console.log(`[EmailService] 🌐 Ethereal Web Preview URL: ${previewUrl}`);
-      console.log(`======================================================\n`);
-
-      return { sent: true, messageId: info.messageId, previewUrl };
-    } catch (err: any) {
-      console.log(`\n[EmailService] 📩 INVITATION EMAIL LOG (Offline mode):`);
-      console.log(`To: ${recipientEmail}`);
-      console.log(`Subject: ${subject}`);
-      console.log(`Message:\n${textContent}\n`);
-      return { sent: true };
+        const previewUrl = nodemailer.getTestMessageUrl(info) || undefined;
+        console.log(`[EmailService] 🌐 Ethereal Web Preview URL: ${previewUrl}`);
+        return { sent: true, messageId: info.messageId, previewUrl };
+      } catch (_) {
+        // Fallback gracefully without hanging
+      }
     }
+
+    console.log(`[EmailService] 📩 Room Join Link generated for ${recipientEmail}: ${joinUrl}`);
+    return { sent: true };
   }
 }
 

@@ -8,12 +8,23 @@ import { EmailService } from '../services/email.service';
 import { TunnelService } from '../services/tunnel.service';
 
 function getDynamicAppUrl(req: Request): string {
+  // 1. If request comes from a cloud origin (Vercel, custom domain), that is the worldwide link
+  const rawOrigin = (req.headers.origin || req.headers.referer || '').replace(/\/$/, '');
+  if (rawOrigin && !rawOrigin.includes('localhost') && !rawOrigin.includes('127.0.0.1') && !rawOrigin.includes('192.168.') && !rawOrigin.includes('10.')) {
+    return rawOrigin;
+  }
+
+  // 2. Cloudflare / Localtunnel public tunnel if active
   const publicTunnel = TunnelService.getPublicUrl();
   if (publicTunnel) {
     return publicTunnel;
   }
 
-  // Find active non-internal IPv4 interface (e.g. 192.168.x.x)
+  if (process.env.APP_URL && !process.env.APP_URL.includes('localhost')) {
+    return process.env.APP_URL;
+  }
+
+  // 3. Local Wi-Fi / LAN IP for local testing
   let lanIp = '';
   const interfaces = os.networkInterfaces();
   for (const devName in interfaces) {
@@ -28,8 +39,7 @@ function getDynamicAppUrl(req: Request): string {
     if (lanIp) break;
   }
 
-  const rawOrigin = (req.headers.origin || req.headers.referer || '').replace(/\/$/, '');
-  if (rawOrigin && !rawOrigin.includes('localhost') && !rawOrigin.includes('127.0.0.1')) {
+  if (rawOrigin) {
     return rawOrigin;
   }
 
@@ -37,7 +47,7 @@ function getDynamicAppUrl(req: Request): string {
     return lanIp;
   }
 
-  return process.env.APP_URL || 'http://localhost:3000';
+  return 'http://localhost:3000';
 }
 
 const router = Router();
@@ -64,7 +74,7 @@ router.get('/lan-info', (req: Request, res: Response) => {
     if (lanIp) break;
   }
 
-  const appUrl = publicTunnel || lanIp || getDynamicAppUrl(req);
+  const appUrl = getDynamicAppUrl(req);
   res.json({
     appUrl,
     publicTunnelUrl: publicTunnel,
@@ -253,49 +263,61 @@ router.post('/:workspaceId/members', requireWorkspaceMember, async (req: AuthReq
       where: { workspaceId, userId: userToInvite.id }
     });
 
-    const inviterName = req.user?.name || 'A teammate';
-    const baseAppUrl = getDynamicAppUrl(req);
-    const joinUrl = `${baseAppUrl.replace(/\/$/, '')}?room=${workspaceId}`;
-
-    // Send actual email notification via EmailService
-    const emailResult = await EmailService.sendWorkspaceInviteEmail({
-      recipientEmail: cleanEmail,
-      inviterName,
-      workspaceName: workspace.name,
-      workspaceId,
-      role: role || 'editor',
-      joinUrl
-    });
+    let member;
+    let isExisting = false;
 
     if (existingMember) {
-      const updatedMember = await prisma.workspaceMember.update({
+      isExisting = true;
+      member = await prisma.workspaceMember.update({
         where: { id: existingMember.id },
         data: { role: role || 'editor' },
         include: {
           user: { select: { id: true, name: true, email: true, avatarUrl: true } }
         }
       });
-      return res.status(200).json({
-        member: updatedMember,
-        message: `Invitation email sent to ${cleanEmail}! Permission updated to ${role || 'editor'}.`,
-        previewUrl: emailResult.previewUrl
+    } else {
+      member = await prisma.workspaceMember.create({
+        data: {
+          workspaceId,
+          userId: userToInvite.id,
+          role: role || 'editor'
+        },
+        include: {
+          user: { select: { id: true, name: true, email: true, avatarUrl: true } }
+        }
       });
     }
 
-    const member = await prisma.workspaceMember.create({
-      data: {
-        workspaceId,
-        userId: userToInvite.id,
-        role: role || 'editor'
-      },
-      include: {
-        user: { select: { id: true, name: true, email: true, avatarUrl: true } }
-      }
-    });
+    const inviterName = req.user?.name || 'A teammate';
+    const baseAppUrl = getDynamicAppUrl(req);
+    const joinUrl = `${baseAppUrl.replace(/\/$/, '')}?room=${workspaceId}`;
 
-    res.status(201).json({
+    // Send actual email notification via EmailService with safety timeout
+    let emailResult = { sent: false, previewUrl: undefined as string | undefined };
+    try {
+      emailResult = await Promise.race([
+        EmailService.sendWorkspaceInviteEmail({
+          recipientEmail: cleanEmail,
+          inviterName,
+          workspaceName: workspace.name,
+          workspaceId,
+          role: role || 'editor',
+          joinUrl
+        }),
+        new Promise<any>((_, reject) => setTimeout(() => reject(new Error('Email dispatch timeout')), 6000))
+      ]);
+    } catch (emailErr: any) {
+      console.warn('[WorkspaceRoutes] Email dispatch notice:', emailErr.message || emailErr);
+    }
+
+    const statusMsg = emailResult.sent
+      ? `Invitation email successfully sent to ${cleanEmail}!`
+      : `Teammate ${cleanEmail} added! Share the direct room link with them.`;
+
+    res.status(isExisting ? 200 : 201).json({
       member,
-      message: `Invitation email sent to ${cleanEmail}!`,
+      message: isExisting ? `${statusMsg} Permission updated to ${role || 'editor'}.` : statusMsg,
+      joinUrl,
       previewUrl: emailResult.previewUrl
     });
   } catch (error: any) {
