@@ -5,7 +5,7 @@ import { getSocket } from '../../api/socket';
 import api from '../../api/client';
 import {
   FileText, Plus, Search, Trash2, Edit2, Check, X, Eye, Edit3,
-  CheckCircle2, Loader2, Users, Sparkles, Clock, BookOpen
+  CheckCircle2, Loader2, Users, Sparkles, Clock, BookOpen, Upload
 } from 'lucide-react';
 
 interface NoteItem {
@@ -42,6 +42,7 @@ export const NotesPanel: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   const saveTimerRef = useRef<any>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const activeNote = notes.find(n => n.id === activeNoteId) || null;
 
   // 1. Fetch notes list from backend
@@ -154,6 +155,47 @@ export const NotesPanel: React.FC = () => {
     }
   };
 
+  // Import Note File (.md, .txt, .json, etc.)
+  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !activeWorkspace) return;
+
+    const noteTitle = file.name.replace(/\.[^/.]+$/, '') || 'Imported Note';
+    const reader = new FileReader();
+
+    reader.onload = async (evt) => {
+      try {
+        const content = (evt.target?.result as string) || '';
+        const res = await api.post(`/workspaces/${activeWorkspace.id}/notes`, {
+          title: noteTitle,
+          content
+        });
+
+        const newNote: NoteItem = res.data.note;
+        setNotes(prev => [newNote, ...prev]);
+        setActiveNoteId(newNote.id);
+
+        socket.emit('notes:mutation', {
+          workspaceId: activeWorkspace.id,
+          action: 'create',
+          note: newNote
+        });
+      } catch (err: any) {
+        console.error('Failed to create imported note:', err);
+        alert(`Failed to import note: ${err.message || 'Error creating note'}`);
+      } finally {
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    };
+
+    reader.onerror = () => {
+      alert('Failed to read selected file.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+
+    reader.readAsText(file);
+  };
+
   // Delete a note
   const handleDeleteNote = async (noteId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -246,6 +288,14 @@ export const NotesPanel: React.FC = () => {
 
   return (
     <div style={{ flex: 1, height: '100%', display: 'flex', background: 'var(--bg-primary)', overflow: 'hidden' }}>
+      {/* Hidden File Input for Note Import */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleImportFile}
+        accept=".md,.txt,.json,.markdown,.text,.log,.csv,*"
+        style={{ display: 'none' }}
+      />
       
       {/* LEFT PANE: Notes Master Directory List */}
       <div style={{
@@ -266,26 +316,46 @@ export const NotesPanel: React.FC = () => {
             </span>
           </div>
 
-          <button
-            onClick={handleCreateNote}
-            title="Create New Note"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: '6px',
-              padding: '5px 10px',
-              fontSize: '12px',
-              fontWeight: '600',
-              cursor: 'pointer',
-              boxShadow: '0 2px 8px rgba(99, 102, 241, 0.3)'
-            }}
-          >
-            <Plus size={14} /> New
-          </button>
+          <div style={{ display: 'flex', gap: '4px' }}>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              title="Import Note (.md, .txt, .json)"
+              style={{
+                background: 'var(--bg-tertiary)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '6px',
+                padding: '5px',
+                cursor: 'pointer',
+                color: 'var(--text-primary)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+            >
+              <Upload size={14} />
+            </button>
+
+            <button
+              onClick={handleCreateNote}
+              title="Create New Note"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '6px',
+                padding: '5px 10px',
+                fontSize: '12px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                boxShadow: '0 2px 8px rgba(99, 102, 241, 0.3)'
+              }}
+            >
+              <Plus size={14} /> New
+            </button>
+          </div>
         </div>
 
         {/* Search Input */}
