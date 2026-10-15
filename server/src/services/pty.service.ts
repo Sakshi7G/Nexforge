@@ -129,29 +129,9 @@ export class PTYService {
       const rcFileName = isPrivate ? `.nexforge_bashrc_private_${sessionId.replace(/[^a-zA-Z0-9_-]/g, '_')}` : `.nexforge_bashrc_${sessionId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
       const rcFilePath = path.join(os.tmpdir(), rcFileName);
       try {
-        const checkVenvScript = isPrivate
-          ? `__nexforge_check_venv() {
-  if [ -z "$VIRTUAL_ENV" ] && [ -z "$__NEXFORGE_DEACTIVATED" ]; then
-    if [ -f "$NEXFORGE_WS/venv_private/bin/activate" ]; then
-      source "$NEXFORGE_WS/venv_private/bin/activate"
-    fi
-  fi
-}`
-          : `__nexforge_check_venv() {
-  if [ -z "$VIRTUAL_ENV" ] && [ -z "$__NEXFORGE_DEACTIVATED" ]; then
-    if [ -f "$NEXFORGE_WS/venv/bin/activate" ]; then
-      source "$NEXFORGE_WS/venv/bin/activate"
-    elif [ -f "$NEXFORGE_WS/.venv/bin/activate" ]; then
-      source "$NEXFORGE_WS/.venv/bin/activate"
-    fi
-  fi
-}`;
-
         const activateFunc = isPrivate
-          ? `activate() { unset __NEXFORGE_DEACTIVATED; if [ -f "$NEXFORGE_WS/venv_private/bin/activate" ]; then source "$NEXFORGE_WS/venv_private/bin/activate"; else echo -e "\\033[33mNo private virtual environment found. Create one with: python3 -m venv venv_private\\033[0m"; fi; }
-deactivate() { export __NEXFORGE_DEACTIVATED=1; [ -n "$_OLD_VIRTUAL_PATH" ] && PATH="$_OLD_VIRTUAL_PATH"; unset _OLD_VIRTUAL_PATH; unset VIRTUAL_ENV; }`
-          : `activate() { unset __NEXFORGE_DEACTIVATED; if [ -f "$NEXFORGE_WS/venv/bin/activate" ]; then source "$NEXFORGE_WS/venv/bin/activate"; elif [ -f "$NEXFORGE_WS/.venv/bin/activate" ]; then source "$NEXFORGE_WS/.venv/bin/activate"; elif [ -n "$1" ] && [ -f "$1/bin/activate" ]; then source "$1/bin/activate"; else echo -e "\\033[33mNo virtual environment found. Create one with: python3 -m venv venv\\033[0m"; fi; }
-deactivate() { export __NEXFORGE_DEACTIVATED=1; [ -n "$_OLD_VIRTUAL_PATH" ] && PATH="$_OLD_VIRTUAL_PATH"; unset _OLD_VIRTUAL_PATH; unset VIRTUAL_ENV; }`;
+          ? `activate() { if [ -f "$NEXFORGE_WS/venv_private/bin/activate" ]; then source "$NEXFORGE_WS/venv_private/bin/activate"; elif [ -f "venv_private/bin/activate" ]; then source "venv_private/bin/activate"; else echo -e "\\033[33mNo private virtual environment found. Create one with: python3 -m venv venv_private\\033[0m"; fi; }`
+          : `activate() { if [ -f "$NEXFORGE_WS/venv/bin/activate" ]; then source "$NEXFORGE_WS/venv/bin/activate"; elif [ -f "venv/bin/activate" ]; then source "venv/bin/activate"; elif [ -f ".venv/bin/activate" ]; then source ".venv/bin/activate"; elif [ -n "$1" ] && [ -f "$1/bin/activate" ]; then source "$1/bin/activate"; else echo -e "\\033[33mNo virtual environment found. Create one with: python3 -m venv venv\\033[0m"; fi; }`;
 
         const bashrcContent = [
           `[ -f /etc/bash.bashrc ] && . /etc/bash.bashrc`,
@@ -165,10 +145,7 @@ deactivate() { export __NEXFORGE_DEACTIVATED=1; [ -n "$_OLD_VIRTUAL_PATH" ] && P
           `export PATH="$HOME/.local/bin:$PATH"`,
           `if ! command -v python >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then alias python=python3; fi`,
           `if ! command -v pip >/dev/null 2>&1 && command -v pip3 >/dev/null 2>&1; then alias pip=pip3; fi`,
-          checkVenvScript,
           activateFunc,
-          `export PROMPT_COMMAND="__nexforge_check_venv"`,
-          `__nexforge_check_venv`,
           `__nexforge_prompt() { if [ -n "$VIRTUAL_ENV" ] && [ -d "$VIRTUAL_ENV" ] && [[ "$VIRTUAL_ENV" == "$NEXFORGE_WS"* ]]; then echo -n "($(basename "$VIRTUAL_ENV")) "; fi; }`,
           `export PS1='\$(__nexforge_prompt)\\[\\033[01;32m\\]nexforge@render\\[\\033[00m\\]:\\[\\033[01;34m\\]~/${cleanWsName}\\[\\033[00m\\]\\$ '`,
           `clear`
