@@ -9,6 +9,7 @@ export interface PTYSession {
   id: string;
   workspaceId: string;
   workspaceName: string;
+  buffer: string;
   onData: (data: string) => void;
   process: {
     write: (data: string) => void;
@@ -53,6 +54,16 @@ export class PTYService {
     if (existing) {
       // Keep existing running process and ensure current room broadcaster is attached
       existing.onData = onData;
+      // Replay existing buffered output so the terminal is never blank
+      if (existing.buffer) {
+        try {
+          onData(existing.buffer);
+        } catch (_) {}
+      }
+      // Trigger a prompt redraw in case the shell is idle at the command line
+      try {
+        existing.process.write('\r');
+      } catch (_) {}
       return existing;
     }
 
@@ -78,10 +89,13 @@ export class PTYService {
 
     const broadcastData = (rawText: string) => {
       const sanitized = this.sanitizeOutput(rawText, cleanWsName);
-      if (currentSession && currentSession.onData) {
-        try {
-          currentSession.onData(sanitized);
-        } catch (_) {}
+      if (currentSession) {
+        currentSession.buffer = ((currentSession.buffer || '') + sanitized).slice(-30000);
+        if (currentSession.onData) {
+          try {
+            currentSession.onData(sanitized);
+          } catch (_) {}
+        }
       }
     };
 
@@ -116,25 +130,27 @@ export class PTYService {
       const rcFilePath = path.join(os.tmpdir(), rcFileName);
       try {
         const venvCheck = isPrivate
-          ? `if [ -f "venv_private/bin/activate" ]; then source venv_private/bin/activate; fi`
-          : `if [ -f "venv/bin/activate" ]; then source venv/bin/activate; elif [ -f ".venv/bin/activate" ]; then source .venv/bin/activate; fi`;
+          ? `if [ -d "$PWD/venv_private/bin" ] && [ -f "$PWD/venv_private/bin/activate" ]; then source "$PWD/venv_private/bin/activate"; fi`
+          : `if [ -d "$PWD/venv/bin" ] && [ -f "$PWD/venv/bin/activate" ]; then source "$PWD/venv/bin/activate"; fi`;
 
         const activateFunc = isPrivate
-          ? `activate() { if [ -f "venv_private/bin/activate" ]; then source venv_private/bin/activate; else echo -e "\\033[33mNo private virtual environment found. Create one with: python3 -m venv venv_private\\033[0m"; fi; }`
-          : `activate() { if [ -f "venv/bin/activate" ]; then source venv/bin/activate; elif [ -f ".venv/bin/activate" ]; then source .venv/bin/activate; elif [ -n "$1" ] && [ -f "$1/bin/activate" ]; then source "$1/bin/activate"; else echo -e "\\033[33mNo virtual environment found. Create one with: python3 -m venv venv\\033[0m"; fi; }`;
+          ? `activate() { if [ -d "$PWD/venv_private/bin" ] && [ -f "$PWD/venv_private/bin/activate" ]; then source "$PWD/venv_private/bin/activate"; else echo -e "\\033[33mNo private virtual environment found. Create one with: python3 -m venv venv_private\\033[0m"; fi; }`
+          : `activate() { if [ -d "$PWD/venv/bin" ] && [ -f "$PWD/venv/bin/activate" ]; then source "$PWD/venv/bin/activate"; elif [ -n "$1" ] && [ -f "$1/bin/activate" ]; then source "$1/bin/activate"; else echo -e "\\033[33mNo virtual environment found. Create one with: python3 -m venv venv\\033[0m"; fi; }`;
 
         const bashrcContent = [
           `[ -f /etc/bash.bashrc ] && . /etc/bash.bashrc`,
           `[ -f ~/.bashrc ] && . ~/.bashrc`,
+          `unset VIRTUAL_ENV`,
+          `unset CONDA_DEFAULT_ENV`,
+          `unset CONDA_PREFIX`,
           `export PIP_BREAK_SYSTEM_PACKAGES=1`,
           `export PATH="$HOME/.local/bin:$PATH"`,
           `if ! command -v python >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then alias python=python3; fi`,
           `if ! command -v pip >/dev/null 2>&1 && command -v pip3 >/dev/null 2>&1; then alias pip=pip3; fi`,
           venvCheck,
-          `__nexforge_prompt() { if [ -z "$VIRTUAL_ENV" ]; then ${venvCheck}; fi; }`,
-          `export PROMPT_COMMAND="__nexforge_prompt"`,
           activateFunc,
-          `export PS1='\${VIRTUAL_ENV:+(\$(basename \$VIRTUAL_ENV)) }\\[\\033[01;32m\\]nexforge@render\\[\\033[00m\\]:\\[\\033[01;34m\\]~/${cleanWsName}\\[\\033[00m\\]\\$ '`,
+          `__nexforge_prompt() { if [ -n "$VIRTUAL_ENV" ] && [ -d "$VIRTUAL_ENV" ] && [[ "$VIRTUAL_ENV" == "$PWD"* ]]; then echo "($(basename "$VIRTUAL_ENV")) "; fi; }`,
+          `export PS1='\$(__nexforge_prompt)\\[\\033[01;32m\\]nexforge@render\\[\\033[00m\\]:\\[\\033[01;34m\\]~/${cleanWsName}\\[\\033[00m\\]\\$ '`,
           `clear`
         ].join('\n');
 
@@ -156,6 +172,11 @@ export class PTYService {
       PATH: `${userLocalBin}${process.env.PATH || ''}`,
       PROMPT: isPrivate ? `(private) PS C:\\Users\\HP\\${cleanWsName} [Private]> ` : `PS C:\\Users\\HP\\${cleanWsName}> `
     } as Record<string, string>;
+
+    // CRITICAL: Strip any inherited host/Render Python virtualenv so the workspace terminal does not show (.venv) unless created by the user!
+    delete spawnEnv.VIRTUAL_ENV;
+    delete spawnEnv.CONDA_DEFAULT_ENV;
+    delete spawnEnv.CONDA_PREFIX;
 
     try {
       // Use real node-pty pseudoterminal (same as VS Code)
@@ -228,6 +249,7 @@ export class PTYService {
       id: sessionId,
       workspaceId,
       workspaceName: cleanWsName,
+      buffer: '',
       onData,
       process: procInstance
     };

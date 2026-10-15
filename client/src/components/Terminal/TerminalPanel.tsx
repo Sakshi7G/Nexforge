@@ -11,9 +11,10 @@ import { Terminal as TerminalIcon, Trash2, Clipboard, Box, Play, Lock, Users } f
 interface TerminalPanelProps {
   height?: number;
   onClose?: () => void;
+  isVisible?: boolean;
 }
 
-export const TerminalPanel: React.FC<TerminalPanelProps> = ({ height = 220 }) => {
+export const TerminalPanel: React.FC<TerminalPanelProps> = ({ height = 220, isVisible = true }) => {
   const [activeTab, setActiveTab] = useState<'shared' | 'private'>('shared');
 
   const sharedContainerRef = useRef<HTMLDivElement>(null);
@@ -229,6 +230,24 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({ height = 220 }) =>
     };
   }, [activeWorkspace?.id, user?.id, theme]);
 
+  // When terminal becomes visible, automatically re-fit and focus
+  useEffect(() => {
+    if (isVisible) {
+      const timer = setTimeout(() => {
+        try {
+          if (activeTab === 'shared') {
+            sharedFitAddonRef.current?.fit();
+            sharedXtermRef.current?.focus();
+          } else {
+            privateFitAddonRef.current?.fit();
+            privateXtermRef.current?.focus();
+          }
+        } catch (_) {}
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [isVisible, activeTab]);
+
   // When switching tabs, re-fit active terminal
   const switchTab = (tab: 'shared' | 'private') => {
     setActiveTab(tab);
@@ -388,13 +407,6 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({ height = 220 }) =>
               <span>Private Terminal</span>
             </button>
           </div>
-
-          {/* Subtitle indicator */}
-          <span style={{ fontSize: '11px', color: activeTab === 'private' ? '#c084fc' : 'var(--text-muted)', fontWeight: activeTab === 'private' ? 600 : 400 }}>
-            {activeTab === 'private'
-              ? '🔒 Isolated environment (venv_private) — not shared with peers'
-              : '🌐 Collaborative workspace session'}
-          </span>
         </div>
 
         {/* Right Side: Quick Action Buttons */}

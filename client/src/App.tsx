@@ -273,8 +273,13 @@ const MainIDEContent: React.FC<{ onReturnHome: () => void }> = ({ onReturnHome }
                 title="Drag to resize terminal / console height"
               />
 
-              {/* Bottom Console / Terminal Panels */}
-              {showExecutionConsole ? (
+              {/* Bottom Console / Terminal Panels (Persistent Terminal Session) */}
+              <div style={{
+                height: `${bottomPanelHeight}px`,
+                display: showExecutionConsole ? 'block' : 'none',
+                width: '100%',
+                overflow: 'hidden'
+              }}>
                 <ExecutionConsole
                   stdout={executionStdout}
                   stderr={executionStderr}
@@ -283,9 +288,17 @@ const MainIDEContent: React.FC<{ onReturnHome: () => void }> = ({ onReturnHome }
                   onAutoFixError={handleOpenAutoFix}
                   onClose={() => setShowExecutionConsole(false)}
                 />
-              ) : (
-                <TerminalPanel height={bottomPanelHeight} />
-              )}
+              </div>
+
+              <div style={{
+                height: `${bottomPanelHeight}px`,
+                display: showExecutionConsole ? 'none' : 'flex',
+                flexDirection: 'column',
+                width: '100%',
+                overflow: 'hidden'
+              }}>
+                <TerminalPanel height={bottomPanelHeight} isVisible={!showExecutionConsole} />
+              </div>
             </>
           )}
         </div>
