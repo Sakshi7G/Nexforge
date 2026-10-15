@@ -83,12 +83,30 @@ export const ShareModal: React.FC<ShareModalProps> = ({ onClose }) => {
     setError('');
     setPreviewUrl('');
     setLastInvitedEmail(cleanEmail);
+
+    const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(cleanEmail)}&su=${encodeURIComponent(`Invitation to join ${activeWorkspace?.name || 'Workspace'} on NexForge`)}&body=${encodeURIComponent(`Hello!\n\nYou have been invited to collaborate on "${activeWorkspace?.name || 'Workspace'}" on NexForge.\n\nRole: ${role.toUpperCase()}\nJoin Link: ${roomUrl}\n\nHappy coding!\n- NexForge Team`)}`;
+
+    // Open blank tab synchronously to prevent browser popup blockers
+    let gmailTab: Window | null = null;
+    try {
+      gmailTab = window.open('about:blank', '_blank');
+    } catch (_) {}
+
     try {
       const res = await api.post(`/workspaces/${activeWorkspace.id}/members`, { email: cleanEmail, role });
-      setMessage(res.data.message || `Successfully invited ${cleanEmail} as ${role}!`);
-      if (res.data.previewUrl) setPreviewUrl(res.data.previewUrl);
+      setMessage(`Teammate ${cleanEmail} added as ${role}! Opening Gmail to send invitation...`);
+      if (res.data?.previewUrl) setPreviewUrl(res.data.previewUrl);
       setEmail('');
+
+      if (gmailTab && !gmailTab.closed) {
+        gmailTab.location.href = gmailUrl;
+      } else {
+        window.open(gmailUrl, '_blank');
+      }
     } catch (err: any) {
+      if (gmailTab && !gmailTab.closed) {
+        gmailTab.close();
+      }
       setError(err.response?.data?.error || err.response?.data?.details || err.message || 'Failed to invite user.');
     } finally {
       setLoading(false);
@@ -252,34 +270,23 @@ export const ShareModal: React.FC<ShareModalProps> = ({ onClose }) => {
               Close
             </button>
             <button
-              type="button"
-              onClick={() => {
-                const targetEmail = email.trim().toLowerCase() || lastInvitedEmail;
-                if (!targetEmail) {
-                  setError('Please enter an email address first');
-                  return;
-                }
-                const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(targetEmail)}&su=${encodeURIComponent(`Invitation to join ${activeWorkspace?.name || 'Workspace'} on NexForge`)}&body=${encodeURIComponent(`Hello!\n\nYou have been invited to collaborate on "${activeWorkspace?.name || 'Workspace'}" on NexForge.\n\nJoin Link: ${roomUrl}\n\nHappy coding!\n- NexForge Team`)}`;
-                window.open(gmailUrl, '_blank');
-              }}
+              type="submit"
+              className="btn-primary"
+              disabled={loading}
               style={{
-                background: 'rgba(234, 67, 53, 0.15)',
-                border: '1px solid rgba(234, 67, 53, 0.4)',
-                color: '#f87171',
-                padding: '8px 12px',
-                borderRadius: '8px',
-                fontSize: '13px',
-                fontWeight: 600,
-                cursor: 'pointer',
-                display: 'flex',
+                background: 'linear-gradient(135deg, #ea4335 0%, #dc2626 100%)',
+                borderColor: '#ef4444',
+                color: '#ffffff',
+                display: 'inline-flex',
                 alignItems: 'center',
-                gap: '6px'
+                gap: '8px',
+                padding: '8px 18px',
+                fontWeight: 600,
+                fontSize: '13px',
+                cursor: loading ? 'not-allowed' : 'pointer'
               }}
             >
-              ✉️ Send via Gmail
-            </button>
-            <button type="submit" className="btn-primary" disabled={loading}>
-              {loading ? 'Sending Invite...' : 'Send Invitation'}
+              {loading ? 'Adding Member...' : '✉️ Send via Gmail'}
             </button>
           </div>
         </form>
