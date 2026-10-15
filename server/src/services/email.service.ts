@@ -111,6 +111,73 @@ Happy coding!
       </html>
     `;
 
+    // 1. Try Brevo REST API (Standard HTTPS Port 443 — NEVER blocked on Render free tier!)
+    const brevoApiKey = process.env.BREVO_API_KEY?.trim();
+    if (brevoApiKey) {
+      try {
+        console.log(`[EmailService] Sending invite to ${recipientEmail} via Brevo HTTPS REST API...`);
+        const brevoSender = process.env.BREVO_SENDER_EMAIL || process.env.GMAIL_USER || 'sakshigharge822@gmail.com';
+        const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+          method: 'POST',
+          headers: {
+            'api-key': brevoApiKey,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify({
+            sender: { name: 'NexForge IDE', email: brevoSender },
+            to: [{ email: recipientEmail }],
+            subject,
+            htmlContent
+          })
+        });
+
+        if (res.ok) {
+          const data: any = await res.json();
+          console.log(`[EmailService] 🚀 Invite email successfully delivered via Brevo API to ${recipientEmail}! MessageId:`, data.messageId);
+          return { sent: true, messageId: data.messageId };
+        } else {
+          const errText = await res.text();
+          console.error(`[EmailService] Brevo API responded with error ${res.status}:`, errText);
+        }
+      } catch (brevoErr: any) {
+        console.error(`[EmailService] Brevo API call failed:`, brevoErr.message || brevoErr);
+      }
+    }
+
+    // 2. Try Resend REST API (HTTPS Port 443)
+    const resendApiKey = process.env.RESEND_API_KEY?.trim();
+    if (resendApiKey) {
+      try {
+        console.log(`[EmailService] Sending invite to ${recipientEmail} via Resend HTTPS REST API...`);
+        const res = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${resendApiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            from: process.env.RESEND_FROM || 'NexForge <onboarding@resend.dev>',
+            to: [recipientEmail],
+            subject,
+            html: htmlContent
+          })
+        });
+
+        if (res.ok) {
+          const data: any = await res.json();
+          console.log(`[EmailService] 🚀 Invite email delivered via Resend to ${recipientEmail}! Id:`, data.id);
+          return { sent: true, messageId: data.id };
+        } else {
+          const errText = await res.text();
+          console.error(`[EmailService] Resend API responded with error ${res.status}:`, errText);
+        }
+      } catch (resendErr: any) {
+        console.error(`[EmailService] Resend API call failed:`, resendErr.message || resendErr);
+      }
+    }
+
+    // 3. Fallback: Try Gmail SMTP (Port 465/587 - works on local development)
     const activeTransporter = this.getTransporter();
     if (activeTransporter) {
       try {

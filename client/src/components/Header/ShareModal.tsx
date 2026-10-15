@@ -15,6 +15,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({ onClose }) => {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [previewUrl, setPreviewUrl] = useState('');
+  const [lastInvitedEmail, setLastInvitedEmail] = useState('');
   const [copiedLink, setCopiedLink] = useState(false);
   const [lanAppUrl, setLanAppUrl] = useState('');
   const [publicTunnelUrl, setPublicTunnelUrl] = useState('');
@@ -81,6 +82,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({ onClose }) => {
     setMessage('');
     setError('');
     setPreviewUrl('');
+    setLastInvitedEmail(cleanEmail);
     try {
       const res = await api.post(`/workspaces/${activeWorkspace.id}/members`, { email: cleanEmail, role });
       setMessage(res.data.message || `Successfully invited ${cleanEmail} as ${role}!`);
@@ -174,11 +176,33 @@ export const ShareModal: React.FC<ShareModalProps> = ({ onClose }) => {
         </div>
 
         {message && (
-          <div style={{ background: 'rgba(16, 185, 129, 0.15)', border: '1px solid var(--status-success)', color: '#a7f3d0', padding: '10px', borderRadius: '6px', fontSize: '13px', marginBottom: '16px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <div style={{ background: 'rgba(16, 185, 129, 0.15)', border: '1px solid var(--status-success)', color: '#a7f3d0', padding: '12px', borderRadius: '8px', fontSize: '13px', marginBottom: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Check size={16} />
-              {message}
+              <Check size={16} color="#10b981" />
+              <span>{message}</span>
             </div>
+            {lastInvitedEmail && (
+              <a
+                href={`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(lastInvitedEmail)}&su=${encodeURIComponent(`Invitation to join ${activeWorkspace?.name || 'Workspace'} on NexForge`)}&body=${encodeURIComponent(`Hello!\n\nYou have been invited to collaborate on "${activeWorkspace?.name || 'Workspace'}" on NexForge.\n\nJoin Link: ${roomUrl}\n\nHappy coding!\n- NexForge Team`)}`}
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  background: '#ea4335',
+                  color: '#ffffff',
+                  padding: '6px 12px',
+                  borderRadius: '6px',
+                  textDecoration: 'none',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  width: 'fit-content'
+                }}
+              >
+                ✉️ Open in Gmail to Send Direct to {lastInvitedEmail}
+              </a>
+            )}
             {previewUrl && (
               <div style={{ fontSize: '11px', color: '#6ee7b7', marginTop: '4px' }}>
                 🌐 Development Email Web Preview: <a href={previewUrl} target="_blank" rel="noreferrer" style={{ color: '#ffffff', textDecoration: 'underline' }}>View Sent Email online</a>
@@ -223,9 +247,36 @@ export const ShareModal: React.FC<ShareModalProps> = ({ onClose }) => {
             </select>
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '10px', marginTop: '10px' }}>
             <button type="button" onClick={onClose} className="btn-secondary">
               Close
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const targetEmail = email.trim().toLowerCase() || lastInvitedEmail;
+                if (!targetEmail) {
+                  setError('Please enter an email address first');
+                  return;
+                }
+                const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(targetEmail)}&su=${encodeURIComponent(`Invitation to join ${activeWorkspace?.name || 'Workspace'} on NexForge`)}&body=${encodeURIComponent(`Hello!\n\nYou have been invited to collaborate on "${activeWorkspace?.name || 'Workspace'}" on NexForge.\n\nJoin Link: ${roomUrl}\n\nHappy coding!\n- NexForge Team`)}`;
+                window.open(gmailUrl, '_blank');
+              }}
+              style={{
+                background: 'rgba(234, 67, 53, 0.15)',
+                border: '1px solid rgba(234, 67, 53, 0.4)',
+                color: '#f87171',
+                padding: '8px 12px',
+                borderRadius: '8px',
+                fontSize: '13px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}
+            >
+              ✉️ Send via Gmail
             </button>
             <button type="submit" className="btn-primary" disabled={loading}>
               {loading ? 'Sending Invite...' : 'Send Invitation'}
