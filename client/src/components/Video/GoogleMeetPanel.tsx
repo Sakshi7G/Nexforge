@@ -57,7 +57,11 @@ const RemotePeerTile: React.FC<{
       position: 'relative',
       width: '100%',
       height: '100%',
+      minWidth: 0,
+      minHeight: 0,
+      maxWidth: totalParticipants === 1 ? '1000px' : '100%',
       maxHeight: totalParticipants === 1 ? '78vh' : '100%',
+      margin: totalParticipants === 1 ? '0 auto' : undefined,
       background: '#161b22',
       borderRadius: '16px',
       overflow: 'hidden',
@@ -111,14 +115,14 @@ const RemotePeerTile: React.FC<{
 
       {/* 4. Fallback Avatar when camera is turned off and not screen sharing */}
       {isCamOff && (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', zIndex: 2 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: totalParticipants > 4 ? '6px' : '12px', zIndex: 2 }}>
           <div style={{
-            width: '80px',
-            height: '80px',
+            width: totalParticipants > 4 ? '56px' : '80px',
+            height: totalParticipants > 4 ? '56px' : '80px',
             borderRadius: '50%',
             background: 'var(--accent-secondary)',
             color: '#fff',
-            fontSize: '28px',
+            fontSize: totalParticipants > 4 ? '20px' : '28px',
             fontWeight: 700,
             display: 'flex',
             alignItems: 'center',
@@ -127,7 +131,7 @@ const RemotePeerTile: React.FC<{
           }}>
             {peer.userName ? peer.userName.slice(0, 2).toUpperCase() : 'U'}
           </div>
-          <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Camera Turned Off</span>
+          <span style={{ fontSize: totalParticipants > 4 ? '11px' : '13px', color: 'var(--text-muted)' }}>Camera Turned Off</span>
         </div>
       )}
 
@@ -243,6 +247,13 @@ export const GoogleMeetPanel: React.FC<{ onLeave?: () => void }> = ({ onLeave })
   const [showParticipants, setShowParticipants] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
   const [audioNeedsClick, setAudioNeedsClick] = useState(false);
+  const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200);
+
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Meeting Recording State & Refs
   const [isRecording, setIsRecording] = useState(false);
@@ -1276,10 +1287,14 @@ export const GoogleMeetPanel: React.FC<{ onLeave?: () => void }> = ({ onLeave })
         cols = 1; rows = 1;
       } else if (N === 2) {
         cols = 2; rows = 1; // 2 participants side-by-side
-      } else if (N <= 4) {
+      } else if (N === 3) {
+        cols = 3; rows = 1; // 3 participants side-by-side
+      } else if (N === 4) {
         cols = 2; rows = 2;
       } else if (N <= 6) {
         cols = 3; rows = 2;
+      } else if (N <= 8) {
+        cols = 4; rows = 2;
       } else {
         cols = 3; rows = Math.ceil(N / 3);
       }
@@ -1436,12 +1451,60 @@ export const GoogleMeetPanel: React.FC<{ onLeave?: () => void }> = ({ onLeave })
 
   const totalParticipants = peersMap.size + 1;
 
-  const getGridTemplate = () => {
-    if (totalParticipants === 1) return '1fr';
-    if (totalParticipants === 2) return '1fr 1fr';
-    if (totalParticipants <= 4) return 'repeat(2, 1fr)';
-    return 'repeat(3, 1fr)';
+  const getGridLayout = () => {
+    if (totalParticipants <= 1) {
+      return {
+        columns: '1fr',
+        rows: '1fr'
+      };
+    }
+    if (totalParticipants === 2) {
+      return {
+        columns: 'repeat(2, minmax(0, 1fr))',
+        rows: 'minmax(0, 1fr)'
+      };
+    }
+    if (totalParticipants === 3) {
+      // If screen is narrow (< 768px), stack as 2 rows; on standard desktop/laptop, 3 columns side-by-side
+      if (windowWidth < 768) {
+        return {
+          columns: 'repeat(2, minmax(0, 1fr))',
+          rows: 'repeat(2, minmax(0, 1fr))'
+        };
+      }
+      return {
+        columns: 'repeat(3, minmax(0, 1fr))',
+        rows: 'minmax(0, 1fr)'
+      };
+    }
+    if (totalParticipants === 4) {
+      return {
+        columns: 'repeat(2, minmax(0, 1fr))',
+        rows: 'repeat(2, minmax(0, 1fr))'
+      };
+    }
+    if (totalParticipants <= 6) {
+      // 3 columns x 2 rows (perfect for 5 or 6 participants)
+      return {
+        columns: 'repeat(3, minmax(0, 1fr))',
+        rows: 'repeat(2, minmax(0, 1fr))'
+      };
+    }
+    if (totalParticipants <= 8) {
+      // 4 columns x 2 rows (for 7 or 8 participants)
+      return {
+        columns: 'repeat(4, minmax(0, 1fr))',
+        rows: 'repeat(2, minmax(0, 1fr))'
+      };
+    }
+    // 9+ participants
+    return {
+      columns: 'repeat(auto-fit, minmax(240px, 1fr))',
+      rows: 'repeat(auto-fit, minmax(180px, 1fr))'
+    };
   };
+
+  const gridLayout = getGridLayout();
 
   return (
     <div style={{
@@ -1570,24 +1633,35 @@ export const GoogleMeetPanel: React.FC<{ onLeave?: () => void }> = ({ onLeave })
         padding: '16px',
         gap: '16px',
         overflow: 'hidden',
-        position: 'relative'
+        position: 'relative',
+        minHeight: 0,
+        minWidth: 0
       }}>
         {/* Responsive Video Tiles Grid */}
         <div style={{
           flex: 1,
           display: 'grid',
-          gridTemplateColumns: getGridTemplate(),
+          gridTemplateColumns: gridLayout.columns,
+          gridTemplateRows: gridLayout.rows,
           gap: '14px',
+          width: '100%',
           height: '100%',
-          alignItems: 'center',
-          justifyContent: 'center'
+          minHeight: 0,
+          minWidth: 0,
+          alignItems: 'stretch',
+          justifyContent: 'center',
+          overflow: totalParticipants > 8 ? 'auto' : 'hidden'
         }}>
           {/* Local User Video Tile */}
           <div style={{
             position: 'relative',
             width: '100%',
             height: '100%',
+            minWidth: 0,
+            minHeight: 0,
+            maxWidth: totalParticipants === 1 ? '1000px' : '100%',
             maxHeight: totalParticipants === 1 ? '78vh' : '100%',
+            margin: totalParticipants === 1 ? '0 auto' : undefined,
             background: '#161b22',
             borderRadius: '16px',
             overflow: 'hidden',
@@ -1603,6 +1677,8 @@ export const GoogleMeetPanel: React.FC<{ onLeave?: () => void }> = ({ onLeave })
               playsInline
               muted={true}
               style={{
+                position: 'absolute',
+                inset: 0,
                 width: '100%',
                 height: '100%',
                 objectFit: isSharingScreen ? 'contain' : 'cover',
@@ -1613,14 +1689,14 @@ export const GoogleMeetPanel: React.FC<{ onLeave?: () => void }> = ({ onLeave })
             />
 
             {!camOn && !isSharingScreen && (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: totalParticipants > 4 ? '6px' : '12px', zIndex: 2 }}>
                 <div style={{
-                  width: '80px',
-                  height: '80px',
+                  width: totalParticipants > 4 ? '56px' : '80px',
+                  height: totalParticipants > 4 ? '56px' : '80px',
                   borderRadius: '50%',
                   background: 'var(--accent-primary)',
                   color: '#fff',
-                  fontSize: '28px',
+                  fontSize: totalParticipants > 4 ? '20px' : '28px',
                   fontWeight: 700,
                   display: 'flex',
                   alignItems: 'center',
@@ -1629,7 +1705,7 @@ export const GoogleMeetPanel: React.FC<{ onLeave?: () => void }> = ({ onLeave })
                 }}>
                   {user?.name ? user.name.slice(0, 2).toUpperCase() : 'ME'}
                 </div>
-                <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Camera Turned Off</span>
+                <span style={{ fontSize: totalParticipants > 4 ? '11px' : '13px', color: 'var(--text-muted)' }}>Camera Turned Off</span>
               </div>
             )}
 
@@ -1646,7 +1722,8 @@ export const GoogleMeetPanel: React.FC<{ onLeave?: () => void }> = ({ onLeave })
                 borderRadius: '12px',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '4px'
+                gap: '4px',
+                zIndex: 10
               }}>
                 <Monitor size={13} /> You are Presenting
               </div>
@@ -1665,7 +1742,8 @@ export const GoogleMeetPanel: React.FC<{ onLeave?: () => void }> = ({ onLeave })
                 borderRadius: '12px',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '4px'
+                gap: '4px',
+                zIndex: 10
               }}>
                 <Hand size={13} /> Hand Raised
               </div>
@@ -1685,7 +1763,8 @@ export const GoogleMeetPanel: React.FC<{ onLeave?: () => void }> = ({ onLeave })
               fontSize: '12px',
               color: '#fff',
               fontWeight: 600,
-              border: '1px solid rgba(255,255,255,0.1)'
+              border: '1px solid rgba(255,255,255,0.1)',
+              zIndex: 10
             }}>
               {micOn ? <Mic size={13} color="#10b981" /> : <MicOff size={13} color="#ef4444" />}
               <span>{user?.name || 'You'} (You)</span>
