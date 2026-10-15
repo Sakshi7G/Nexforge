@@ -1,4 +1,6 @@
 import os from 'os';
+import path from 'path';
+import fs from 'fs-extra';
 import * as pty from 'node-pty';
 import { spawn } from 'child_process';
 import { FileService } from './file.service';
@@ -31,7 +33,9 @@ export class PTYService {
       .replace(/C:[\\\/]Users[\\\/][^\\\/]+[\\\/]\.gemini[\\\/]antigravity[\\\/]scratch[\\\/]nexforge/gi, targetFolder)
       .replace(/\\\.gemini\\antigravity\\scratch\\nexforge/gi, `\\${cleanWsName}`)
       .replace(/\.gemini[\\\/]antigravity[\\\/]scratch/gi, 'Projects')
-      .replace(/\.gemini[\\\/]antigravity/gi, 'NexForgeDev');
+      .replace(/\.gemini[\\\/]antigravity/gi, 'NexForgeDev')
+      .replace(/\/tmp\/workspaces_storage\/[a-f0-9-]+/gi, `~/${cleanWsName}`)
+      .replace(/render@srv-[a-z0-9-]+/gi, 'nexforge@render');
   }
 
   /**
@@ -83,11 +87,75 @@ export class PTYService {
 
     let procInstance: { write: (data: string) => void; kill: () => void };
 
+    // Ensure pip config exists on Linux / Render to bypass PEP 668 externally-managed-environment error
+    if (!isWin) {
+      try {
+        const homeDir = os.homedir();
+        const pipConfDir = path.join(homeDir, '.config', 'pip');
+        fs.ensureDirSync(pipConfDir);
+        fs.writeFileSync(path.join(pipConfDir, 'pip.conf'), '[global]\nbreak-system-packages = true\n');
+
+        const legacyPipDir = path.join(homeDir, '.pip');
+        fs.ensureDirSync(legacyPipDir);
+        fs.writeFileSync(path.join(legacyPipDir, 'pip.conf'), '[global]\nbreak-system-packages = true\n');
+      } catch (err) {
+        console.warn('[PTYService] Could not write pip.conf:', err);
+      }
+    }
+
     // Set PowerShell prompt to match VS Code with dynamic (venv) indicator & auto-activation upon creation
     const promptCommand = isPrivate
       ? `function global:prompt { if (-not $env:VIRTUAL_ENV) { if (Test-Path ".\\venv_private\\Scripts\\Activate.ps1") { & ".\\venv_private\\Scripts\\Activate.ps1" } }; $v = if ($env:VIRTUAL_ENV) { "($((Split-Path $env:VIRTUAL_ENV -Leaf))) " } else { "(private) " }; "$($v)PS C:\\Users\\HP\\${cleanWsName} [Private]> " }; function global:activate { if (Test-Path ".\\venv_private\\Scripts\\Activate.ps1") { & ".\\venv_private\\Scripts\\Activate.ps1" } else { Write-Host "No private virtual environment found. Create one with: python -m venv venv_private" -ForegroundColor Yellow } }; if (Test-Path ".\\venv_private\\Scripts\\Activate.ps1") { & ".\\venv_private\\Scripts\\Activate.ps1" }; Clear-Host`
       : `function global:prompt { if (-not $env:VIRTUAL_ENV) { if (Test-Path ".\\venv\\Scripts\\Activate.ps1") { & ".\\venv\\Scripts\\Activate.ps1" } elseif (Test-Path ".\\.venv\\Scripts\\Activate.ps1") { & ".\\.venv\\Scripts\\Activate.ps1" } }; $v = if ($env:VIRTUAL_ENV) { "($((Split-Path $env:VIRTUAL_ENV -Leaf))) " } else { "" }; "$($v)PS C:\\Users\\HP\\${cleanWsName}> " }; function global:activate { if (Test-Path ".\\venv\\Scripts\\Activate.ps1") { & ".\\venv\\Scripts\\Activate.ps1" } elseif (Test-Path ".\\.venv\\Scripts\\Activate.ps1") { & ".\\.venv\\Scripts\\Activate.ps1" } else { Write-Host "No virtual environment found. Create one with: python -m venv venv" -ForegroundColor Yellow } }; if (Test-Path ".\\venv\\Scripts\\Activate.ps1") { & ".\\venv\\Scripts\\Activate.ps1" } elseif (Test-Path ".\\.venv\\Scripts\\Activate.ps1") { & ".\\.venv\\Scripts\\Activate.ps1" }; Clear-Host`;
-    const shellArgs = isWin ? ['-NoLogo', '-NoExit', '-ExecutionPolicy', 'Bypass', '-Command', promptCommand] : ['-i'];
+
+    let shellArgs: string[];
+    if (isWin) {
+      shellArgs = ['-NoLogo', '-NoExit', '-ExecutionPolicy', 'Bypass', '-Command', promptCommand];
+    } else {
+      const rcFileName = isPrivate ? `.nexforge_bashrc_private_${sessionId.replace(/[^a-zA-Z0-9_-]/g, '_')}` : `.nexforge_bashrc_${sessionId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+      const rcFilePath = path.join(os.tmpdir(), rcFileName);
+      try {
+        const venvCheck = isPrivate
+          ? `if [ -f "venv_private/bin/activate" ]; then source venv_private/bin/activate; fi`
+          : `if [ -f "venv/bin/activate" ]; then source venv/bin/activate; elif [ -f ".venv/bin/activate" ]; then source .venv/bin/activate; fi`;
+
+        const activateFunc = isPrivate
+          ? `activate() { if [ -f "venv_private/bin/activate" ]; then source venv_private/bin/activate; else echo -e "\\033[33mNo private virtual environment found. Create one with: python3 -m venv venv_private\\033[0m"; fi; }`
+          : `activate() { if [ -f "venv/bin/activate" ]; then source venv/bin/activate; elif [ -f ".venv/bin/activate" ]; then source .venv/bin/activate; elif [ -n "$1" ] && [ -f "$1/bin/activate" ]; then source "$1/bin/activate"; else echo -e "\\033[33mNo virtual environment found. Create one with: python3 -m venv venv\\033[0m"; fi; }`;
+
+        const bashrcContent = [
+          `[ -f /etc/bash.bashrc ] && . /etc/bash.bashrc`,
+          `[ -f ~/.bashrc ] && . ~/.bashrc`,
+          `export PIP_BREAK_SYSTEM_PACKAGES=1`,
+          `export PATH="$HOME/.local/bin:$PATH"`,
+          `if ! command -v python >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then alias python=python3; fi`,
+          `if ! command -v pip >/dev/null 2>&1 && command -v pip3 >/dev/null 2>&1; then alias pip=pip3; fi`,
+          venvCheck,
+          `__nexforge_prompt() { if [ -z "$VIRTUAL_ENV" ]; then ${venvCheck}; fi; }`,
+          `export PROMPT_COMMAND="__nexforge_prompt"`,
+          activateFunc,
+          `export PS1='\${VIRTUAL_ENV:+(\$(basename \$VIRTUAL_ENV)) }\\[\\033[01;32m\\]nexforge@render\\[\\033[00m\\]:\\[\\033[01;34m\\]~/${cleanWsName}\\[\\033[00m\\]\\$ '`,
+          `clear`
+        ].join('\n');
+
+        fs.writeFileSync(rcFilePath, bashrcContent, 'utf-8');
+      } catch (err) {
+        console.warn('[PTYService] Could not write nexforge_bashrc:', err);
+      }
+      shellArgs = ['--rcfile', rcFilePath, '-i'];
+    }
+
+    const userLocalBin = !isWin ? `${path.join(os.homedir(), '.local', 'bin')}:` : '';
+    const spawnEnv: Record<string, string> = {
+      ...process.env,
+      TERM: 'xterm-256color',
+      FORCE_COLOR: '1',
+      PIP_BREAK_SYSTEM_PACKAGES: '1',
+      PIP_NO_WARN_SCRIPT_LOCATION: '0',
+      PYTHONUNBUFFERED: '1',
+      PATH: `${userLocalBin}${process.env.PATH || ''}`,
+      PROMPT: isPrivate ? `(private) PS C:\\Users\\HP\\${cleanWsName} [Private]> ` : `PS C:\\Users\\HP\\${cleanWsName}> `
+    } as Record<string, string>;
 
     try {
       // Use real node-pty pseudoterminal (same as VS Code)
@@ -96,11 +164,7 @@ export class PTYService {
         cols: 100,
         rows: 24,
         cwd: workingDir,
-        env: {
-          ...process.env,
-          TERM: 'xterm-256color',
-          PROMPT: isPrivate ? `(private) PS C:\\Users\\HP\\${cleanWsName} [Private]> ` : `PS C:\\Users\\HP\\${cleanWsName}> `
-        } as Record<string, string>,
+        env: spawnEnv,
         useConpty: false
       });
 
@@ -129,11 +193,7 @@ export class PTYService {
       console.warn('[PTYService] node-pty spawn failed, falling back to child_process:', ptyErr);
       const fallbackChild = spawn(shell, shellArgs, {
         cwd: workingDir,
-        env: {
-          ...process.env,
-          TERM: 'xterm-256color',
-          FORCE_COLOR: '1'
-        },
+        env: spawnEnv,
         shell: false
       });
 
@@ -175,7 +235,7 @@ export class PTYService {
     this.sessions.set(sessionId, currentSession);
     
     // Initial welcome banner matching the folder name in VS Code style
-    const cleanDisplayPath = `C:\\Users\\HP\\${cleanWsName}`;
+    const cleanDisplayPath = isWin ? `C:\\Users\\HP\\${cleanWsName}` : `/workspace/${cleanWsName}`;
     if (isPrivate) {
       broadcastData(`\r\n\x1b[35m=== NexForge Private Terminal (Isolated Session) ===\x1b[0m\r\n\x1b[90mSession: Private Isolated PTY | Working Directory: ${cleanDisplayPath}\x1b[0m\r\n\x1b[36mTip: Packages installed here (e.g. pip install pandas) are isolated to venv_private and do NOT affect teammates.\x1b[0m\r\n\r\n`);
     } else {

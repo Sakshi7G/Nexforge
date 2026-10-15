@@ -19,6 +19,9 @@ import { setupSocketIO } from './sockets';
 import { DockerExecutionService } from './services/docker.service';
 import { TunnelService } from './services/tunnel.service';
 
+// Allow pip installs on modern Debian/Ubuntu containers (PEP 668 bypass)
+process.env.PIP_BREAK_SYSTEM_PACKAGES = '1';
+
 const app = express();
 
 // Middlewares

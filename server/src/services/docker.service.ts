@@ -2,6 +2,7 @@ import Docker from 'dockerode';
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs-extra';
+import os from 'os';
 import { FileService } from './file.service';
 
 const docker = new Docker();
@@ -183,7 +184,7 @@ export class DockerExecutionService {
           } else if (fs.existsSync(dotVenvPyUnix)) {
             command = dotVenvPyUnix;
           } else {
-            command = 'python';
+            command = os.platform() === 'win32' ? 'python' : 'python3';
           }
           args = [options.entryFile];
           break;
@@ -205,10 +206,15 @@ export class DockerExecutionService {
       let stdoutAcc = '';
       let stderrAcc = '';
 
+      const userLocalBin = os.platform() !== 'win32' ? `${path.join(os.homedir(), '.local', 'bin')}:` : '';
       const child = spawn(command, args, {
         cwd: workingDir,
         shell: true,
-        env: { ...process.env, PATH: process.env.PATH }
+        env: {
+          ...process.env,
+          PIP_BREAK_SYSTEM_PACKAGES: '1',
+          PATH: `${userLocalBin}${process.env.PATH || ''}`
+        }
       });
 
       const timer = setTimeout(() => {

@@ -57,7 +57,9 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({ height = 220 }) =>
       .replace(/C:[\\\/]Users[\\\/][^\\\/]+[\\\/]\.gemini[\\\/]antigravity[\\\/]scratch[\\\/]nexforge/gi, targetFolder)
       .replace(/\\\.gemini\\antigravity\\scratch\\nexforge/gi, `\\${wsName}`)
       .replace(/\.gemini[\\\/]antigravity[\\\/]scratch/gi, 'Projects')
-      .replace(/\.gemini[\\\/]antigravity/gi, 'NexForgeDev');
+      .replace(/\.gemini[\\\/]antigravity/gi, 'NexForgeDev')
+      .replace(/\/tmp\/workspaces_storage\/[a-f0-9-]+/gi, `~/${wsName}`)
+      .replace(/render@srv-[a-z0-9-]+/gi, 'nexforge@render');
   };
 
   // 1. Shared Terminal Lifecycle
