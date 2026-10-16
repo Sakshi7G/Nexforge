@@ -175,16 +175,6 @@ export const GitPanel: React.FC<GitPanelProps> = ({ width = 360 }) => {
   const handleSaveRemote = async () => {
     if (!activeWorkspace || !inputRemoteUrl.trim()) return;
     const cleanUrl = inputRemoteUrl.trim();
-    if (cleanUrl.startsWith('https://github.com/') && !cleanUrl.includes('@')) {
-      const proceed = window.confirm(
-        '⚠️ GitHub Authentication Notice:\n\n' +
-        'GitHub requires a Personal Access Token (PAT) for pushes. Without a token, GitHub will reject git push.\n\n' +
-        'Recommended Format:\n' +
-        'https://<YOUR_TOKEN>@github.com/username/repo.git\n\n' +
-        'Click OK to continue with this URL anyway, or Cancel to add your token.'
-      );
-      if (!proceed) return;
-    }
     try {
       setLoading(true);
       const res = await api.post(`/workspaces/${activeWorkspace.id}/git/remote`, { url: cleanUrl });

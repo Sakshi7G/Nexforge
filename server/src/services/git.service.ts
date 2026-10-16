@@ -160,20 +160,24 @@ export class GitService {
       currentBranch = 'main';
     }
 
+    let pushTarget = 'origin';
+    const serverToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+    const originUrl = await this.getRemoteUrl(workspaceId);
+    if (serverToken && originUrl && originUrl.startsWith('https://github.com/') && !originUrl.includes('@')) {
+      pushTarget = originUrl.replace('https://github.com/', `https://${serverToken}@github.com/`);
+    }
+
     try {
       const options = ['-u'];
       if (force) options.push('-f');
-      await git.push('origin', currentBranch, options);
+      await git.push(pushTarget, currentBranch, options);
       return `Pushed changes successfully to origin/${currentBranch}`;
     } catch (err: any) {
       const msg = err.message || '';
-      if (msg.includes('Authentication failed') || msg.includes('could not read Username') || msg.includes('403') || msg.includes('Invalid username or password')) {
-        throw new Error('GitHub authentication failed. GitHub requires a Personal Access Token (PAT). Please update your Remote URL to include your token: https://<YOUR_GITHUB_TOKEN>@github.com/Sakshi7G/test.git');
-      }
       if (msg.includes('src refspec') && msg.includes('does not match any')) {
         try {
           await git.raw(['branch', '-M', 'main']);
-          await git.push('origin', 'main', ['-u']);
+          await git.push(pushTarget, 'main', ['-u']);
           return 'Pushed changes successfully to origin/main';
         } catch (retryErr: any) {
           throw new Error(`Git Push failed: ${retryErr.message}`);
