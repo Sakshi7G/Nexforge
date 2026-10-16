@@ -34,6 +34,9 @@ export const GitPanel: React.FC<GitPanelProps> = ({ width = 360 }) => {
   // Modals state
   const [showRemoteModal, setShowRemoteModal] = useState(false);
   const [inputRemoteUrl, setInputRemoteUrl] = useState('');
+  const [inputToken, setInputToken] = useState('');
+  const [showAuthPushModal, setShowAuthPushModal] = useState(false);
+  const [tokenInput, setTokenInput] = useState('');
   const [showBranchModal, setShowBranchModal] = useState(false);
   const [newBranchName, setNewBranchName] = useState('');
   const [showHistory, setShowHistory] = useState(false);
@@ -174,13 +177,19 @@ export const GitPanel: React.FC<GitPanelProps> = ({ width = 360 }) => {
 
   const handleSaveRemote = async () => {
     if (!activeWorkspace || !inputRemoteUrl.trim()) return;
-    const cleanUrl = inputRemoteUrl.trim();
+    let cleanUrl = inputRemoteUrl.trim();
+    if (inputToken.trim()) {
+      const cleanToken = inputToken.trim();
+      const strippedUrl = cleanUrl.replace(/^https:\/\/[^@]+@github\.com\//, 'https://github.com/');
+      cleanUrl = strippedUrl.replace('https://github.com/', `https://${cleanToken}@github.com/`);
+    }
     try {
       setLoading(true);
       const res = await api.post(`/workspaces/${activeWorkspace.id}/git/remote`, { url: cleanUrl });
       setRemoteUrl(res.data.remoteUrl);
       setShowRemoteModal(false);
       setInputRemoteUrl('');
+      setInputToken('');
       await fetchStatus();
       alert('Remote repository connected successfully!');
     } catch (err: any) {
@@ -200,6 +209,10 @@ export const GitPanel: React.FC<GitPanelProps> = ({ width = 360 }) => {
       alert(`Pushed changes successfully to origin/${currentBranch}!`);
     } catch (err: any) {
       const errMsg = err.response?.data?.details || err.message || '';
+      if (errMsg.includes('could not read Username') || errMsg.includes('Authentication failed') || errMsg.includes('403') || errMsg.includes('No such device or address')) {
+        setShowAuthPushModal(true);
+        return;
+      }
       if (!force && (errMsg.includes('non-fast-forward') || errMsg.includes('behind') || errMsg.includes('rejected'))) {
         const userChoice = window.confirm(
           `Your local branch is behind the remote GitHub repository.\n\n` +
@@ -215,6 +228,28 @@ export const GitPanel: React.FC<GitPanelProps> = ({ width = 360 }) => {
       alert(`Push failed: ${errMsg}`);
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  const handleAuthAndPush = async () => {
+    if (!tokenInput.trim() || !activeWorkspace) return;
+    try {
+      setLoading(true);
+      const cleanToken = tokenInput.trim();
+      const currentUrl = remoteUrl || inputRemoteUrl;
+      const strippedUrl = currentUrl.replace(/^https:\/\/[^@]+@github\.com\//, 'https://github.com/');
+      const authenticatedUrl = strippedUrl.replace('https://github.com/', `https://${cleanToken}@github.com/`);
+      await api.post(`/workspaces/${activeWorkspace.id}/git/remote`, { url: authenticatedUrl });
+      setRemoteUrl(authenticatedUrl);
+      setShowAuthPushModal(false);
+      setTokenInput('');
+      await fetchStatus();
+      await handlePush();
+    } catch (err: any) {
+      console.error(err);
+      alert(`Authentication failed: ${err.response?.data?.details || err.message}`);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -634,16 +669,92 @@ export const GitPanel: React.FC<GitPanelProps> = ({ width = 360 }) => {
               <div style={{ marginTop: '4px', color: 'var(--text-muted)' }}>Generate tokens in GitHub → Settings → Developer Settings → Personal Access Tokens.</div>
             </div>
 
-            <input
-              type="text"
-              placeholder="https://github.com/username/repository.git"
-              value={inputRemoteUrl}
-              onChange={e => setInputRemoteUrl(e.target.value)}
-              style={{ width: '100%', background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '10px 12px', color: 'var(--text-primary)', fontSize: '12px', outline: 'none', marginBottom: '16px' }}
-            />
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>
+                GitHub Repository URL:
+              </label>
+              <input
+                type="text"
+                placeholder="https://github.com/username/repository.git"
+                value={inputRemoteUrl}
+                onChange={e => setInputRemoteUrl(e.target.value)}
+                style={{ width: '100%', background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '10px 12px', color: 'var(--text-primary)', fontSize: '12px', outline: 'none' }}
+              />
+            </div>
+
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>
+                GitHub Personal Access Token (Required by GitHub to push):
+              </label>
+              <input
+                type="password"
+                placeholder="ghp_xxxxxxxxxxxxxxxxxxxx (Optional for pulling, needed for pushing)"
+                value={inputToken}
+                onChange={e => setInputToken(e.target.value)}
+                style={{ width: '100%', background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '10px 12px', color: 'var(--text-primary)', fontSize: '12px', outline: 'none' }}
+              />
+            </div>
+
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
               <button onClick={() => setShowRemoteModal(false)} className="btn-secondary" style={{ padding: '6px 14px', fontSize: '12px' }}>Cancel</button>
               <button onClick={handleSaveRemote} className="btn-primary" style={{ padding: '6px 18px', fontSize: '12px' }}>Connect</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* GitHub Authentication Dialog for Push */}
+      {showAuthPushModal && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: '480px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '14px', padding: '24px', boxShadow: '0 20px 50px rgba(0,0,0,0.4)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+              <UploadCloud size={20} color="var(--accent-primary)" />
+              <h3 style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)', margin: 0 }}>GitHub Authentication Required</h3>
+            </div>
+            
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.6', marginBottom: '16px' }}>
+              GitHub requires authentication to push (upload) code to <b>{remoteUrl?.replace(/^https:\/\/[^@]+@/, 'https://')}</b> so strangers cannot overwrite your repository.
+            </p>
+
+            <div style={{ marginBottom: '16px', background: 'var(--bg-primary)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '12px', color: 'var(--text-secondary)' }}>
+              <div style={{ fontWeight: '600', color: 'var(--accent-primary)', marginBottom: '4px' }}>How to get a free GitHub Token in 30 seconds:</div>
+              <div>1. Go to GitHub → <b>Settings</b> → <b>Developer Settings</b> → <b>Personal access tokens (classic)</b>.</div>
+              <div>2. Check the <b>repo</b> scope and click Generate.</div>
+              <a
+                href="https://github.com/settings/tokens/new?scopes=repo&description=NexForge%20IDE"
+                target="_blank"
+                rel="noreferrer"
+                style={{ display: 'inline-block', marginTop: '6px', color: 'var(--accent-primary)', fontWeight: '600', textDecoration: 'none' }}
+              >
+                ↗ Click here to generate token directly on GitHub
+              </a>
+            </div>
+
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
+                Paste Personal Access Token:
+              </label>
+              <input
+                type="password"
+                placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                value={tokenInput}
+                onChange={e => setTokenInput(e.target.value)}
+                style={{ width: '100%', background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '10px 12px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button onClick={() => setShowAuthPushModal(false)} className="btn-secondary" style={{ padding: '8px 16px', fontSize: '12px' }}>
+                Cancel
+              </button>
+              <button
+                onClick={handleAuthAndPush}
+                disabled={!tokenInput.trim() || loading}
+                className="btn-primary"
+                style={{ padding: '8px 20px', fontSize: '12px', opacity: tokenInput.trim() ? 1 : 0.6 }}
+              >
+                {loading ? <Loader2 size={14} className="animate-spin" /> : 'Authenticate & Push Now'}
+              </button>
             </div>
           </div>
         </div>
