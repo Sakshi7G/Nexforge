@@ -65,6 +65,22 @@ export class FileService {
     }
   }
 
+  public static async syncDbToDisk(workspaceId: string): Promise<void> {
+    const diskBasePath = this.getWorkspaceDiskPath(workspaceId);
+    const dbFiles = await prisma.file.findMany({ where: { workspaceId } });
+    for (const f of dbFiles) {
+      const fullPath = path.join(diskBasePath, f.path);
+      if (f.isFolder) {
+        await fs.ensureDir(fullPath);
+      } else if (f.content !== null && f.content !== undefined) {
+        if (!await fs.pathExists(fullPath)) {
+          await fs.ensureDir(path.dirname(fullPath));
+          await fs.writeFile(fullPath, f.content, 'utf-8');
+        }
+      }
+    }
+  }
+
   /**
    * Scans workspace directory on disk and syncs new files/folders (such as venv,
    * requirements.txt, or files created via terminal) into the database so they appear

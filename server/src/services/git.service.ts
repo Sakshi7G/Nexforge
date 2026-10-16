@@ -9,6 +9,17 @@ export class GitService {
     return simpleGit(diskPath);
   }
 
+  private static async ensureIdentity(git: SimpleGit, authorName?: string): Promise<void> {
+    const userName = await git.raw(['config', 'user.name']).catch(() => '');
+    if (!userName.trim()) {
+      await git.raw(['config', 'user.name', authorName || 'NexForge Developer']).catch(() => {});
+    }
+    const userEmail = await git.raw(['config', 'user.email']).catch(() => '');
+    if (!userEmail.trim()) {
+      await git.raw(['config', 'user.email', 'developer@nexforge.dev']).catch(() => {});
+    }
+  }
+
   public static async initRepo(workspaceId: string): Promise<string> {
     const git = this.getGitInstance(workspaceId);
     const diskPath = FileService.getWorkspaceDiskPath(workspaceId);
@@ -16,6 +27,7 @@ export class GitService {
     const isRepo = await git.checkIsRepo();
     if (!isRepo) {
       await git.init();
+      await git.raw(['branch', '-M', 'main']).catch(() => {});
       const gitignorePath = path.join(diskPath, '.gitignore');
       if (!await fs.pathExists(gitignorePath)) {
         await fs.writeFile(gitignorePath, 'node_modules/\n*.log\n.env\ndist/\n', 'utf-8');
@@ -49,7 +61,7 @@ export class GitService {
     if (filePath) {
       await git.add(filePath);
     } else {
-      await git.add('./*');
+      await git.raw(['add', '-A']).catch(() => git.add('.'));
     }
   }
 
@@ -67,13 +79,26 @@ export class GitService {
   public static async commitChanges(workspaceId: string, message: string, authorName?: string): Promise<any> {
     const git = this.getGitInstance(workspaceId);
     await this.initRepo(workspaceId);
-    const status = await git.status();
-    // If no staged files exist, stage all modifications before committing
-    if (status.staged.length === 0) {
-      await git.add('./*');
+    await this.ensureIdentity(git, authorName);
+
+    // Sync database files to disk to guarantee all project files exist physically
+    await FileService.syncDbToDisk(workspaceId).catch(() => {});
+
+    // Stage all changes (new, modified, deleted)
+    await git.raw(['add', '-A']).catch(() => git.add('.'));
+
+    // Normalize branch to main
+    await git.raw(['branch', '-M', 'main']).catch(() => {});
+
+    try {
+      const result = await git.commit(message);
+      return result;
+    } catch (err: any) {
+      if (err.message?.includes('nothing to commit')) {
+        return { summary: { changes: 0, insertions: 0, deletions: 0 } };
+      }
+      throw new Error(`Git commit failed: ${err.message}`);
     }
-    const result = await git.commit(message);
-    return result;
   }
 
   public static async getRemoteUrl(workspaceId: string): Promise<string | null> {
@@ -109,15 +134,52 @@ export class GitService {
 
   public static async push(workspaceId: string, branch?: string, force = false): Promise<string> {
     const git = this.getGitInstance(workspaceId);
+    await this.initRepo(workspaceId);
+    await this.ensureIdentity(git);
+
+    // Verify remote exists
+    const remotes = await git.getRemotes();
+    const hasOrigin = remotes.some(r => r.name === 'origin');
+    if (!hasOrigin) {
+      throw new Error("No remote origin configured. Click 'Connect Remote' first to set your GitHub repository URL.");
+    }
+
+    // Check if repo has any commits yet
+    const countStr = await git.raw(['rev-list', '--count', 'HEAD']).catch(() => '0');
+    const commitCount = parseInt(countStr.trim(), 10) || 0;
+    if (commitCount === 0) {
+      // Auto-commit initial workspace files so HEAD and branch ref exist!
+      console.log('[GitService] 0 commits detected before push. Performing initial commit...');
+      await this.commitChanges(workspaceId, 'Initial workspace commit from NexForge');
+    }
+
     const status = await git.status();
-    const currentBranch = branch || status.current || 'main';
+    let currentBranch = branch || status.current || 'main';
+    if (!currentBranch || currentBranch === 'master') {
+      await git.raw(['branch', '-M', 'main']).catch(() => {});
+      currentBranch = 'main';
+    }
+
     try {
       const options = ['-u'];
       if (force) options.push('-f');
       await git.push('origin', currentBranch, options);
       return `Pushed changes successfully to origin/${currentBranch}`;
     } catch (err: any) {
-      throw new Error(`Git Push failed: ${err.message}`);
+      const msg = err.message || '';
+      if (msg.includes('Authentication failed') || msg.includes('could not read Username') || msg.includes('403') || msg.includes('Invalid username or password')) {
+        throw new Error('GitHub authentication failed. GitHub requires a Personal Access Token (PAT). Please update your Remote URL to include your token: https://<YOUR_GITHUB_TOKEN>@github.com/Sakshi7G/test.git');
+      }
+      if (msg.includes('src refspec') && msg.includes('does not match any')) {
+        try {
+          await git.raw(['branch', '-M', 'main']);
+          await git.push('origin', 'main', ['-u']);
+          return 'Pushed changes successfully to origin/main';
+        } catch (retryErr: any) {
+          throw new Error(`Git Push failed: ${retryErr.message}`);
+        }
+      }
+      throw new Error(`Git Push failed: ${msg}`);
     }
   }
 

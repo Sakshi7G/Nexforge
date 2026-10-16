@@ -162,8 +162,11 @@ export const GitPanel: React.FC<GitPanelProps> = ({ width = 360 }) => {
       await api.post(`/workspaces/${activeWorkspace.id}/git/commit`, { message: commitMsg });
       setCommitMsg('');
       await fetchStatus();
-    } catch (err) {
+      alert('Changes committed successfully!');
+    } catch (err: any) {
       console.error(err);
+      const errMsg = err.response?.data?.details || err.response?.data?.error || err.message || 'Error committing changes';
+      alert(`Commit failed: ${errMsg}`);
     } finally {
       setActionLoading(null);
     }
@@ -171,15 +174,28 @@ export const GitPanel: React.FC<GitPanelProps> = ({ width = 360 }) => {
 
   const handleSaveRemote = async () => {
     if (!activeWorkspace || !inputRemoteUrl.trim()) return;
+    const cleanUrl = inputRemoteUrl.trim();
+    if (cleanUrl.startsWith('https://github.com/') && !cleanUrl.includes('@')) {
+      const proceed = window.confirm(
+        '⚠️ GitHub Authentication Notice:\n\n' +
+        'GitHub requires a Personal Access Token (PAT) for pushes. Without a token, GitHub will reject git push.\n\n' +
+        'Recommended Format:\n' +
+        'https://<YOUR_TOKEN>@github.com/username/repo.git\n\n' +
+        'Click OK to continue with this URL anyway, or Cancel to add your token.'
+      );
+      if (!proceed) return;
+    }
     try {
       setLoading(true);
-      const res = await api.post(`/workspaces/${activeWorkspace.id}/git/remote`, { url: inputRemoteUrl });
+      const res = await api.post(`/workspaces/${activeWorkspace.id}/git/remote`, { url: cleanUrl });
       setRemoteUrl(res.data.remoteUrl);
       setShowRemoteModal(false);
       setInputRemoteUrl('');
       await fetchStatus();
-    } catch (err) {
+      alert('Remote repository connected successfully!');
+    } catch (err: any) {
       console.error(err);
+      alert(`Failed to set remote: ${err.response?.data?.details || err.message}`);
     } finally {
       setLoading(false);
     }
